@@ -51,6 +51,8 @@
     data.products.push(p)
     sortProducts(username)
     saveData(username, data)
+    // try to send to backend (best-effort)
+    trySendProductToServer(p).catch(()=>{})
     return p
   }
   function updateProduct(username, id, updates){
@@ -60,6 +62,8 @@
     data.products[idx] = {...data.products[idx], ...updates}
     sortProducts(username)
     saveData(username, data)
+    // try update on server (best-effort)
+    trySendProductToServer(data.products[idx]).catch(()=>{})
     return data.products[idx]
   }
   function deleteProduct(username, id){
@@ -69,6 +73,8 @@
     data.sales = data.sales.filter(s=>s.product_id!=id)
     data.orders = data.orders.filter(o=>o.product_id!=id)
     saveData(username, data)
+    // best-effort delete on server
+    fetch('/api/products/'+id, { method: 'DELETE' }).catch(()=>{})
   }
 
   // ----------------------
@@ -94,6 +100,8 @@
     data.purchases.unshift(item)
     saveData(username, data)
     route()
+    // sync to server purchases endpoint (best-effort)
+    fetch('/api/purchases', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(item) }).catch(()=>{})
     return item
   }
 
@@ -112,6 +120,8 @@
     data.sales.unshift(item)
     saveData(username, data)
     route()
+    // sync to server sales endpoint (best-effort)
+    fetch('/api/sales', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(item) }).catch(()=>{})
     return item
   }
 
@@ -131,6 +141,8 @@
     if (idx===-1) return null
     data.orders[idx] = {...data.orders[idx], ...updates}
     saveData(username, data)
+    // try to sync order to server
+    fetch('/api/orders', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(data.orders[idx]) }).catch(()=>{})
     return data.orders[idx]
   }
 
@@ -175,6 +187,19 @@
   // ----------------------
   const root = q('#root')
   const topnav = q('#topnav')
+
+  // ----------------------
+  // Helpers: server sync
+  // ----------------------
+  async function trySendProductToServer(p){
+    // if server not available, this will fail silently
+    try{
+      // attempt to create or update based on presence of numeric id on server
+      // our client ids are timestamps; server creates its own ids — use bulk for simplicity
+      await fetch('/api/products', { method: 'POST', headers: { 'content-type':'application/json' }, body: JSON.stringify(p) })
+      return true
+    }catch(e){ return false }
+  }
 
   function navLinks(){
     return `
@@ -265,6 +290,19 @@
     add.onclick = ()=>{ const p = { sku:'', name:'', price:0, cost:0, qty:0, qty_per_kit:1 }; createProduct(u.username,p); renderProducts(); renderProductForm(p) }
     top.appendChild(add)
     root.appendChild(top)
+
+    const syncAllBtn = el('button','btn secondary','Salvar todos no DB')
+    syncAllBtn.onclick = async ()=>{
+      const confirmMsg = 'Enviar todos os produtos locais para o servidor (criar/duplicar). Prosseguir?'
+      if (!confirm(confirmMsg)) return
+      const list = getData(u.username).products || []
+      try{
+        const res = await fetch('/api/products/bulk', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(list) })
+        if (res.ok) alert('Produtos enviados ao servidor (bulk)')
+        else alert('Falha ao enviar')
+      }catch(e){ alert('Servidor não disponível') }
+    }
+    top.appendChild(syncAllBtn)
 
     // ensure products sorted by SKU
     sortProducts(u.username)
